@@ -1,8 +1,13 @@
 """
 Tools for querying data using pandas operations.
 """
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import json
+import base64
+from io import StringIO
 from data_loader import DataLoader
 from schema_indexer import SchemaIndexer
 
@@ -150,4 +155,134 @@ class QueryTool:
     def list_tables(self) -> List[str]:
         """List all available tables."""
         return self.data_loader.get_all_tables()
+    
+    def create_chart(
+        self,
+        table_name: str,
+        chart_type: str = "bar",
+        x_column: Optional[str] = None,
+        y_column: Optional[str] = None,
+        group_by: Optional[str] = None,
+        aggregation: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        title: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a chart from table data.
+        
+        Args:
+            table_name: Name of the table
+            chart_type: Type of chart ('bar', 'line', 'scatter', 'pie', 'histogram')
+            x_column: Column for x-axis
+            y_column: Column for y-axis (required for bar, line, scatter)
+            group_by: Column to group by
+            aggregation: Aggregation function if grouping ('sum', 'mean', 'count', 'max', 'min')
+            filters: Dictionary of filters to apply
+            title: Chart title
+            
+        Returns:
+            Dictionary with chart HTML and metadata
+        """
+        if table_name not in self.data_loader.dataframes:
+            return {
+                "error": f"Table '{table_name}' not found",
+                "available_tables": self.data_loader.get_all_tables()
+            }
+        
+        df = self.data_loader.dataframes[table_name].copy()
+        
+        try:
+            # Apply filters
+            if filters:
+                for col, value in filters.items():
+                    if col in df.columns:
+                        if isinstance(value, dict):
+                            for op, val in value.items():
+                                if op == '>':
+                                    df = df[df[col] > val]
+                                elif op == '<':
+                                    df = df[df[col] < val]
+                                elif op == '>=':
+                                    df = df[df[col] >= val]
+                                elif op == '<=':
+                                    df = df[df[col] <= val]
+                                elif op == '==':
+                                    df = df[df[col] == val]
+                                elif op == '!=':
+                                    df = df[df[col] != val]
+                        else:
+                            df = df[df[col] == value]
+            
+            # Apply grouping and aggregation if needed
+            if group_by and aggregation:
+                if group_by in df.columns:
+                    if aggregation == 'sum':
+                        df_grouped = df.groupby(group_by)[y_column].sum().reset_index() if y_column else df.groupby(group_by).sum().reset_index()
+                    elif aggregation == 'mean':
+                        df_grouped = df.groupby(group_by)[y_column].mean().reset_index() if y_column else df.groupby(group_by).mean().reset_index()
+                    elif aggregation == 'count':
+                        df_grouped = df.groupby(group_by).size().reset_index(name='count')
+                    elif aggregation == 'max':
+                        df_grouped = df.groupby(group_by)[y_column].max().reset_index() if y_column else df.groupby(group_by).max().reset_index()
+                    elif aggregation == 'min':
+                        df_grouped = df.groupby(group_by)[y_column].min().reset_index() if y_column else df.groupby(group_by).min().reset_index()
+                    else:
+                        df_grouped = df
+                    df = df_grouped
+            
+            # Create chart based on type
+            fig = None
+            
+            if chart_type == "bar":
+                if not x_column or not y_column:
+                    return {"error": "Bar chart requires both x_column and y_column"}
+                fig = px.bar(df, x=x_column, y=y_column, title=title or f"{y_column} by {x_column}")
+            
+            elif chart_type == "line":
+                if not x_column or not y_column:
+                    return {"error": "Line chart requires both x_column and y_column"}
+                fig = px.line(df, x=x_column, y=y_column, title=title or f"{y_column} over {x_column}")
+            
+            elif chart_type == "scatter":
+                if not x_column or not y_column:
+                    return {"error": "Scatter chart requires both x_column and y_column"}
+                fig = px.scatter(df, x=x_column, y=y_column, title=title or f"{y_column} vs {x_column}")
+            
+            elif chart_type == "pie":
+                if not x_column or not y_column:
+                    return {"error": "Pie chart requires both x_column (labels) and y_column (values)"}
+                fig = px.pie(df, names=x_column, values=y_column, title=title or f"Distribution of {y_column}")
+            
+            elif chart_type == "histogram":
+                if not y_column:
+                    return {"error": "Histogram requires y_column"}
+                fig = px.histogram(df, x=y_column, title=title or f"Distribution of {y_column}")
+            
+            else:
+                return {"error": f"Unknown chart type: {chart_type}. Supported: bar, line, scatter, pie, histogram"}
+            
+            if fig:
+                # Store chart parameters for the app to recreate
+                # We can't serialize Plotly figures through the agent, so return parameters
+                return {
+                    "success": True,
+                    "chart_type": chart_type,
+                    "x_column": x_column,
+                    "y_column": y_column,
+                    "group_by": group_by,
+                    "aggregation": aggregation,
+                    "filters": filters,
+                    "title": title or (f"{y_column} by {x_column}" if x_column and y_column else f"Chart of {y_column}"),
+                    "table_name": table_name,
+                    "data_points": len(df),
+                    "columns_used": [x_column, y_column] if x_column and y_column else [y_column] if y_column else []
+                }
+            
+        except Exception as e:
+            return {
+                "error": str(e),
+                "table_name": table_name
+            }
+        
+        return {"error": "Failed to create chart"}
 

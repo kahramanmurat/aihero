@@ -11,5 +11,7 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "openai>=1.108.2",
     "minsearch>=0.0.5",
+    "plotly>=5.18.0",
+    "matplotlib>=3.8.0",
 ]
 
