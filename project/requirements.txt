@@ -1,0 +1,7 @@
+pydantic-ai==1.0.9
+streamlit>=1.52.2
+pandas>=2.2.0
+sqlalchemy>=2.0.0
+openai>=1.108.2
+minsearch>=0.0.5
+
